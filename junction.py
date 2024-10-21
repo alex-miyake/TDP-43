@@ -1,0 +1,222 @@
+import pyarrow.parquet as pq
+import pyarrow.compute as pc
+import pyarrow.csv as pv
+import pyarrow as pa
+import pandas as pd
+import zipfile
+import os
+
+# Extract all files from the ZIP
+def extract_all_parquet_from_zip(zip_path, extract_dir='extracted_parquet'):
+    """
+    Extracts all Parquet files from a ZIP archive.
+
+    Parameters:
+    zip_path (str): Path to the ZIP file containing parquet files.
+    extract_dir (str): Directory where files will be extracted (default: 'extracted_parquet').
+
+    Returns:
+    List[str]: List of paths to the extracted Parquet files.
+
+    Raises:
+    Exception: If no parquet files are found or if extraction fails.
+    """
+    
+    try:
+        print(f"Extracting files from {zip_path}...")
+        
+        # Create directory to extract files
+        if not os.path.exists(extract_dir):
+            os.makedirs(extract_dir)
+        
+        # Extract all parquet files
+        with zipfile.ZipFile(zip_path, 'r') as z:
+            z.extractall(extract_dir)
+        
+        # Get list of all parquet files
+        parquet_files = [os.path.join(extract_dir, f) for f in os.listdir(extract_dir) if f.endswith('.parquet')]
+        
+        if len(parquet_files) == 0:
+            raise Exception(f"No parquet files found in the extracted directory {extract_dir}.")
+        
+        print(f"Successfully extracted {len(parquet_files)} parquet files.")
+        return parquet_files
+    
+    except zipfile.BadZipFile:
+        print("Error: Failed to unzip the file. It might be corrupted.")
+        raise
+    except Exception as e:
+        print(f"Error during extraction: {e}")
+        raise
+
+# Load Parquet files
+def load_parquet_files(parquet_files):
+    """
+    Loads Parquet files and returns them as pyarrow.Table.
+
+    Parameters:
+    parquet_files (List[str]): List of paths to the Parquet files.
+
+    Returns:
+    pyarrow.Table: Loaded parquet table.
+
+    Raises:
+    Exception: If there is an issue reading the parquet files.
+    """
+    try:
+        print("Loading parquet files...")
+        
+        for parquet_file in parquet_files:
+            print(f"Processing file: {parquet_file}")
+            parquet_file = pq.ParquetFile(parquet_file, thrift_string_size_limit = 1000000000)
+            parquet_dataset = parquet_file.read()
+            print("Successfully read parquet file")
+            print(parquet_file.metadata)
+            print(parquet_file.schema)
+        print("Successfully loaded parquet files.")
+        
+        return parquet_dataset
+
+    except Exception as e:
+        print(f"Error during parquet loading: {e}")
+        raise
+
+# Filter splice events function
+def filter_splice(splice_events_path):
+    """
+    Filters the splice events DataFrame based on specific cryptic event categories.
+
+    Parameters:
+    splice_events_path (str): Path to the CSV file containing splice events.
+
+    Returns:
+    pandas.DataFrame: Filtered DataFrame with cryptic splice events.
+
+    Raises:
+    Exception: If there is an issue during filtering.
+    """
+    options = ['novel_acceptor','novel_exon_skip','novel_donor']
+    try:
+        splice_df = pd.read_csv(splice_events_path)
+        filtered_df = splice_df.loc[splice_df['junc_cat'].isin(options)]
+        filtered_df.to_csv('filtered_splice.csv', index=False)
+        print("successfully filtered splice events to cryptic events")
+        return filtered_df
+    
+    except Exception as e:
+        print(f"Error during splice filtering: {e}")
+        raise
+
+# Join datasets together 
+def join_datasets(parquet_table, splice_events, metadata):
+    """
+    Converts splice events pandas DataFrame to PyArrow table.
+    Joins the Parquet table with the splice events and metadata.
+
+    Parameters:
+    parquet_table (pyarrow.Table): Pyarrow Table of the Parquet dataset.
+    splice_events (pandas.DataFrame): DataFrame of filtered splice events.
+    metadata: CSV file containing sample metadata.
+
+    Returns:
+    pyarrow.Table: Joined table containing data from both datasets.
+
+    Raises:
+    Exception: If there is an issue during the join process.
+    """
+    try:
+        ds2 = pa.Table.from_pandas(splice_events)
+        splice_joined_ds = parquet_table.join(ds2, keys="junction_coords", join_type="inner")
+        pv.write_csv(splice_joined_ds, "splice_joined.csv")
+        print("Successfully joined splice events to hek junctions")
+
+    except Exception as e:
+        print(f"Error joining splice events with hek junctions: {e}")
+        raise
+
+    try:
+        ds3 = pv.read_csv(metadata)
+        all_added_ds = splice_joined_ds.join(ds3, keys="sample_name")      
+        print("Successfully joined metadata to hek junctions")
+
+    except Exception as e:
+        print(f"Error joining  with hek junctions: {e}")
+        raise
+
+    return all_added_ds
+
+# filter 
+def filter_joined(joined_df):
+    """
+    Filters the joined dataset based on specific conditions of TDP43 knockdown, and if rescue is induced.
+
+    Parameters:
+    joined_df (pyarrow.Table): Joined table containing both HEK junctions and splice events.
+
+    Returns:
+    pyarrow.Table: Filtered table.
+
+    Raises:
+    Exception: If there is an issue during filtering.
+    """
+    try:
+        filtered_df = joined_df.filter(pc.equal(joined_df["TDP43_kd"], "siTDP43")) 
+        print(f"Result: There are {filtered_df.num_rows} rows of cryptic events that appear with TDP43_kd")
+        pv.write_csv(filtered_df, "cryptic TDP43kd.csv")
+
+    except Exception as e:
+        print(f"Error filtering with joined junctions: {e}")
+        raise
+
+    try:
+        filtered2_df = filtered_df.filter(pc.equal(filtered_df["rescueExpression"], "rescueInduced")) 
+        print(f"Result: There are {filtered2_df.num_rows} rows of rescued cryptic events that appear with TDP43_kd")
+
+    except Exception as e:
+        print(f"Error filtering with joined junctions (2): {e}")
+        raise
+
+    return filtered2_df
+
+# Main processing function
+def process_data(zip_path, splice_events, sample_metadata, extract_dir='extracted_parquet'):
+    try:
+        print("Starting data processing...")
+        
+        # Extract all Parquet files from the ZIP archive
+        parquet_files = extract_all_parquet_from_zip(zip_path, extract_dir=extract_dir)
+        parquet_dataset = load_parquet_files(parquet_files)
+
+        # Filter splice events csv
+        filtered_df = filter_splice(splice_events)
+        joined_df = join_datasets(parquet_dataset, filtered_df, sample_metadata)
+        output_df = filter_joined(joined_df)
+
+        # Clean up by removing the extracted directory
+        for file in parquet_files:
+            os.remove(file)
+        os.rmdir(extract_dir)
+        print("Temporary files cleaned up successfully.")
+        
+        return output_df
+    
+    except Exception as e:
+        print(f"Error during data processing: {e}")
+        raise
+
+
+zip_path = 'input data/hek_all_junctions.parquet.zip'  # Parquet ZIP file
+splice_events_path = 'input data/splice_events.csv'  # Splice events CSV file
+sample_metadata_path = 'input data/metadata_halleger_hek.csv'  # Sample metadata CSV file
+
+try:
+    # Load Splice Events and Sample Metadata
+    print("Loading splice events and sample metadata...")
+    
+    # Run the processing
+    final_df = process_data(zip_path, splice_events_path, sample_metadata_path)
+    pv.write_csv(final_df, "output.csv")
+    print("Results saved successfully.")
+    
+except Exception as e:
+    print(f"Error during the script execution: {e}")
