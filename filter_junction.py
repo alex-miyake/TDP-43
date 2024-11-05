@@ -95,11 +95,12 @@ def filter_splice(splice_events_path):
     Raises:
     Exception: If there is an issue during filtering.
     """
+    # list of cryptic junction categories
     options = ['novel_acceptor','novel_exon_skip','novel_donor']
+    # filter based on this list
     try:
         splice_df = pd.read_csv(splice_events_path)
         filtered_df = splice_df.loc[splice_df['junc_cat'].isin(options)]
-        filtered_df.to_csv('filtered_splice.csv', index=False)
         print("successfully filtered splice events to cryptic events")
         return filtered_df
     
@@ -127,7 +128,6 @@ def join_datasets(parquet_table, splice_events, metadata):
     try:
         ds2 = pa.Table.from_pandas(splice_events)
         splice_joined_ds = parquet_table.join(ds2, keys="junction_coords", join_type="inner")
-        pv.write_csv(splice_joined_ds, "splice_joined.csv")
         print("Successfully joined splice events to hek junctions")
 
     except Exception as e:
@@ -145,10 +145,36 @@ def join_datasets(parquet_table, splice_events, metadata):
 
     return all_added_ds
 
+
+
+def count_joined(joined_df):
+    """    
+    Creates a summarisation table with the number of cryptics per genotype, along with number of crpytics associated with TDP43 knockdown, and number of events where rescue is induced.
+    
+    Parameters:
+    joined_df (DataFrame)
+
+    Returns:
+    counted_df (DataFrame): table with genotype, cryptic count, TDP43 count, and resue count.
+
+    Raises:
+    Exception: If there is an issue during counting.
+    """
+    try:    
+        joined_df = joined_df.to_pandas()
+        counted_df = joined_df.groupby('genotype').agg(cryptic_count=('genotype', 'size'),TDP34_kd_associated=('TDP43_kd', lambda x: (x == 'siTDP43').sum()),rescueInduced=('rescueExpression', lambda x: (x == 'rescueInduced').sum()))
+        print('Successfully counted number of cryptics per gene')
+        return counted_df
+    
+    except Exception as e:
+        print(f"Error counting joined junctions: {e}")
+    raise
+
+
 # filter 
 def filter_joined(joined_df):
     """
-    Filters the joined dataset based on specific conditions of TDP43 knockdown, and if rescue is induced.
+    Filters the joined dataset for only entries with TDP43 knockdown, and if rescue is induced.
 
     Parameters:
     joined_df (pyarrow.Table): Joined table containing both HEK junctions and splice events.
@@ -159,15 +185,17 @@ def filter_joined(joined_df):
     Raises:
     Exception: If there is an issue during filtering.
     """
+    # Filter for only entries with TDP43 knockdown
     try:
         filtered_df = joined_df.filter(pc.equal(joined_df["TDP43_kd"], "siTDP43")) 
         print(f"Result: There are {filtered_df.num_rows} rows of cryptic events that appear with TDP43_kd")
-        pv.write_csv(filtered_df, "cryptic TDP43kd.csv")
+        pv.write_csv(filtered_df, "cryptic_data.csv")
 
     except Exception as e:
         print(f"Error filtering with joined junctions: {e}")
         raise
 
+    # filter for only entries with RescueInduced
     try:
         filtered2_df = filtered_df.filter(pc.equal(filtered_df["rescueExpression"], "rescueInduced")) 
         print(f"Result: There are {filtered2_df.num_rows} rows of rescued cryptic events that appear with TDP43_kd")
@@ -177,6 +205,7 @@ def filter_joined(joined_df):
         raise
 
     return filtered2_df
+
 
 # Main processing function
 def process_data(zip_path, splice_events, sample_metadata, extract_dir='extracted_parquet'):
@@ -190,7 +219,8 @@ def process_data(zip_path, splice_events, sample_metadata, extract_dir='extracte
         # Filter splice events csv
         filtered_df = filter_splice(splice_events)
         joined_df = join_datasets(parquet_dataset, filtered_df, sample_metadata)
-        output_df = filter_joined(joined_df)
+        filtered_data_df = filter_joined(joined_df)
+        counted_data_df = count_joined(joined_df)
 
         # Clean up by removing the extracted directory
         for file in parquet_files:
@@ -198,24 +228,25 @@ def process_data(zip_path, splice_events, sample_metadata, extract_dir='extracte
         os.rmdir(extract_dir)
         print("Temporary files cleaned up successfully.")
         
-        return output_df
+        return filtered_data_df, counted_data_df
     
     except Exception as e:
         print(f"Error during data processing: {e}")
         raise
 
 
-zip_path = 'input data/hek_all_junctions.parquet.zip'  # Parquet ZIP file
-splice_events_path = 'input data/splice_events.csv'  # Splice events CSV file
-sample_metadata_path = 'input data/metadata_halleger_hek.csv'  # Sample metadata CSV file
+zip_path = 'input_data/hek_all_junctions.parquet.zip'  # Parquet ZIP file
+splice_events_path = 'input_data/splice_events.csv'  # Splice events CSV file
+sample_metadata_path = 'input_data/metadata_halleger_hek.csv'  # Sample metadata CSV file
 
 try:
     # Load Splice Events and Sample Metadata
     print("Loading splice events and sample metadata...")
     
     # Run the processing
-    final_df = process_data(zip_path, splice_events_path, sample_metadata_path)
-    pv.write_csv(final_df, "output.csv")
+    filtered_df, counted_df = process_data(zip_path, splice_events_path, sample_metadata_path)
+    pv.write_csv(filtered_df, "filtered_data.csv")
+    counted_df.to_csv('data_summarisation.csv')
     print("Results saved successfully.")
     
 except Exception as e:
