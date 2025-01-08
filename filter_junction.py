@@ -189,7 +189,7 @@ def filter_joined(joined_df):
     try:
         filtered_df = joined_df.filter(pc.equal(joined_df["TDP43_kd"], "siTDP43")) 
         print(f"Result: There are {filtered_df.num_rows} rows of cryptic events that appear with TDP43_kd")
-        pv.write_csv(filtered_df, "cryptic_data.csv")
+        pv.write_csv(filtered_df, "unfiltered_cryptic_data.csv")
 
     except Exception as e:
         print(f"Error filtering with joined junctions: {e}")
@@ -246,7 +246,7 @@ try:
     # Run the processing
     filtered_df, counted_df = process_data(zip_path, splice_events_path, sample_metadata_path)
     pv.write_csv(filtered_df, "filtered_data.csv")
-    counted_df.to_csv('data_summarisation.csv')
+    counted_df.to_csv('cryptic_summarisation.csv')
     print("Results saved successfully.")
     
 except Exception as e:

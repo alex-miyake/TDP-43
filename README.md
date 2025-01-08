@@ -10,7 +10,7 @@ To analyse the role of protein TDP-43 condensation properties neurodegenerative 
 
 The World Health Organization (WHO) estimates that 50 million people worldwide are affected by neurodegenerative disorders. Diseases such as Amyotrophic Lateral Sclerosis (ALS) and Frontotemporal Dementia (FTD) are profoundly debilitating conditions, impacting motor control, cognitive function, and behavioural changes. This research aims to analyse the genetic cause of these diseases. 
 
-The allele UNC13A containing cryptic exons has been identified as a significant genetic risk factor for ALS and FTD. Causes of this have lead back to the malfunctioning of a protein (TDP-43). Understanding TDP-43’s role is critical to unravelling the underlying mechanisms of these diseases and potentially identifying therapeutic targets.
+The allele UNC13A containing cryptic exons has been identified as a significant genetic risk factor for ALS and FTD. Causes of this lead back to a malfunctioning protein (TDP-43). Understanding TDP-43’s role is critical to unravelling the underlying mechanisms of these diseases and potentially identifying therapeutic targets.
 
 ## Methodology
 
